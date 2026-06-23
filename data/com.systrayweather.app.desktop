@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=SysTrayWeather
+Comment=System tray weather indicator for KDE Plasma
+Exec=systrayweather
+Icon=weather-clear
+Terminal=false
+Categories=Utility;
+StartupNotify=false
+X-KDE-autostart-after=panel
