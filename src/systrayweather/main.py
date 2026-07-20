@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+import signal
 import sys
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from systrayweather.config import AppConfig
 from systrayweather.location_dialog import LocationDialog
-from systrayweather.main_window import MainWindow
 from systrayweather.tray import WeatherTrayIcon
 from systrayweather.weather.open_meteo import OpenMeteoClient
 from systrayweather.weather_service import WeatherService
@@ -71,16 +71,26 @@ class SysTrayWeatherApp:
 
         self.app = QApplication(sys.argv)
         self.config = AppConfig.load()
-        self.main_window = MainWindow()
         self.tray = WeatherTrayIcon()
         self.service = WeatherService(self.config)
 
-        self.tray.show_window_requested.connect(self._toggle_window)
         self.tray.refresh_requested.connect(self.service.refresh)
         self.tray.change_location_requested.connect(self._change_location)
         self.tray.quit_requested.connect(self._quit)
-        self.main_window.location_change_requested.connect(self._change_location)
         self.service.weather_updated.connect(self._on_weather_updated)
+        self._quitting = False
+        self._install_signal_handlers()
+
+    def _install_signal_handlers(self) -> None:
+        def _handle_signal(_signum, _frame) -> None:
+            QTimer.singleShot(0, self._quit)
+
+        signal.signal(signal.SIGINT, _handle_signal)
+        signal.signal(signal.SIGTERM, _handle_signal)
+
+        self._signal_timer = QTimer(self.app)
+        self._signal_timer.timeout.connect(lambda: None)
+        self._signal_timer.start(200)
 
     def run(self) -> int:
         if not _ensure_single_instance(self.app):
@@ -100,26 +110,21 @@ class SysTrayWeatherApp:
         self.tray.show()
         return self.app.exec()
 
-    def _toggle_window(self) -> None:
-        if self.main_window.isVisible():
-            self.main_window.hide()
-        else:
-            self.main_window.show()
-            self.main_window.raise_()
-            self.main_window.activateWindow()
-
     def _change_location(self) -> None:
-        if _prompt_location(self.config, self.main_window):
+        if _prompt_location(self.config):
             self.service._config = self.config
             self.service.refresh()
 
     def _on_weather_updated(self, snapshot, error) -> None:
         self.tray.update_weather(snapshot, error)
-        self.main_window.update_weather(snapshot, error)
 
     def _quit(self) -> None:
+        if self._quitting:
+            return
+        self._quitting = True
+        self._signal_timer.stop()
+        self.tray.shutdown()
         self.service.close()
-        self.tray.hide()
         self.app.quit()
 
 

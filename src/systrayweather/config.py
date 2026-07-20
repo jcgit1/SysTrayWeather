@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 
 ZIP_PATTERN = re.compile(r"^\d{5}$")
 CONFIG_DIR = Path.home() / ".config" / "systrayweather"
 CONFIG_PATH = CONFIG_DIR / "config.json"
+DEFAULT_POLL_INTERVAL_MINUTES = 20
 
 
 @dataclass
@@ -18,11 +19,8 @@ class AppConfig:
     longitude: float = 0.0
     timezone: str = "auto"
     units: str = "imperial"
-    poll_interval_minutes: int = 10
+    poll_interval_minutes: int = DEFAULT_POLL_INTERVAL_MINUTES
     location_setup_complete: bool = False
-
-    # Backward compatibility with configs that used zip_code.
-    zip_code: str = ""
 
     @property
     def is_configured(self) -> bool:
@@ -42,17 +40,21 @@ class AppConfig:
             location_query = str(
                 data.get("location_query") or data.get("zip_code") or ""
             )
-            return cls(
+            raw_poll = data.get("poll_interval_minutes", DEFAULT_POLL_INTERVAL_MINUTES)
+            poll = _normalize_poll_interval(raw_poll)
+            config = cls(
                 location_query=location_query,
                 location_name=str(data.get("location_name", "")),
                 latitude=float(data.get("latitude", 0.0)),
                 longitude=float(data.get("longitude", 0.0)),
                 timezone=str(data.get("timezone", "auto")),
                 units=str(data.get("units", "imperial")),
-                poll_interval_minutes=int(data.get("poll_interval_minutes", 10)),
+                poll_interval_minutes=poll,
                 location_setup_complete=bool(data.get("location_setup_complete", False)),
-                zip_code=str(data.get("zip_code", "")),
             )
+            if poll != raw_poll:
+                config.save()
+            return config
         except (json.JSONDecodeError, TypeError, ValueError):
             return cls()
 
@@ -72,6 +74,16 @@ class AppConfig:
             json.dumps(payload, indent=2) + "\n",
             encoding="utf-8",
         )
+
+
+def _normalize_poll_interval(value: object) -> int:
+    try:
+        minutes = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_POLL_INTERVAL_MINUTES
+    if minutes == 10:
+        return DEFAULT_POLL_INTERVAL_MINUTES
+    return max(1, minutes)
 
 
 def validate_location_query(query: str) -> str | None:

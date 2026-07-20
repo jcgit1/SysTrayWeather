@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
 
-from systrayweather.config import AppConfig
+from systrayweather.config import AppConfig, DEFAULT_POLL_INTERVAL_MINUTES
 from systrayweather.weather.models import WeatherSnapshot
 from systrayweather.weather.open_meteo import OpenMeteoClient
 
@@ -45,7 +45,8 @@ class WeatherService(QObject):
         return self._cache
 
     def start(self) -> None:
-        interval_ms = max(1, self._config.poll_interval_minutes) * 60 * 1000
+        minutes = self._config.poll_interval_minutes or DEFAULT_POLL_INTERVAL_MINUTES
+        interval_ms = max(1, minutes) * 60 * 1000
         self._timer.start(interval_ms)
         self.refresh()
 
@@ -60,16 +61,6 @@ class WeatherService(QObject):
         if snapshot:
             self._cache = snapshot
         self.weather_updated.emit(self._cache, error)
-
-    def geocode_and_save(self, location_query: str) -> None:
-        result = self._client.geocode_location(location_query)
-        self._config.location_query = location_query
-        self._config.latitude = result.latitude
-        self._config.longitude = result.longitude
-        self._config.timezone = result.timezone
-        self._config.location_name = result.location_name
-        self._config.location_setup_complete = True
-        self._config.save()
 
     def close(self) -> None:
         self._timer.stop()

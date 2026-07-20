@@ -1,6 +1,6 @@
 # SysTrayWeather
 
-Linux system tray weather indicator for **KDE Plasma**. Shows the current temperature in the tray, a hover summary for yesterday/today/tomorrow, and an expandable window with hourly, daily, and weekly forecasts.
+Linux system tray weather indicator for **KDE Plasma**. Shows the current temperature in the tray and city + temperature on hover.
 
 Weather data is provided by [Open-Meteo](https://open-meteo.com/) (free, no API key required).
 
@@ -25,45 +25,23 @@ pip install -e .
 systrayweather
 ```
 
-Or without installing:
-
-```bash
-source .venv/bin/activate
-PYTHONPATH=src python -m systrayweather.main
-```
-
-On first launch you will be prompted for a **city or US zip code** (e.g. `Austin, TX` or `90210`). Settings are stored in `~/.config/systrayweather/config.json`.
+On first launch you will be prompted for a **city or US zip code** (e.g. `Austin` or `90210`). Settings are stored in `~/.config/systrayweather/config.json`.
 
 ## Usage
 
 | Action | Result |
 |--------|--------|
 | Tray icon | Shows current temperature (e.g. `72°`) |
-| Hover icon | Popup with yesterday / today / tomorrow highs and lows; raindrop when precip > 30% |
-| Left-click icon | Open or hide the main window |
-| Right-click icon | Menu: Show window, Refresh, Location, Quit |
-| Location button | Change city or zip code (main window header or tray menu) |
-| Close main window | Minimizes to tray (app keeps running) |
+| Hover icon | Tooltip with city and temperature |
+| Right-click icon | Menu: Refresh, Location, Quit |
 
-### Main window views
-
-- **Hourly** — next 12 hours
-- **Daily** — next 12 days
-- **Weekly** — next 14 days (this week + next week)
+Temperature refreshes automatically every **20 minutes**. Use **Refresh** in the tray menu to update immediately.
 
 ## Autostart with Plasma
-
-Copy the desktop file into your autostart folder:
 
 ```bash
 mkdir -p ~/.config/autostart
 cp data/com.systrayweather.app.desktop ~/.config/autostart/
-```
-
-If `systrayweather` is not on your `PATH`, edit the `Exec=` line to use the full path to your venv script, for example:
-
-```ini
-Exec=/home/you/Cursor Projects/SysTrayWeather/.venv/bin/systrayweather
 ```
 
 ## Configuration
@@ -78,21 +56,17 @@ Exec=/home/you/Cursor Projects/SysTrayWeather/.venv/bin/systrayweather
   "longitude": -118.41,
   "timezone": "America/Los_Angeles",
   "units": "imperial",
-  "poll_interval_minutes": 10,
+  "poll_interval_minutes": 20,
   "location_setup_complete": true
 }
 ```
 
 ## Cursor workspace
 
-Open this project on the dev machine:
+Standalone project — **not** part of LM9LLM. Open only:
 
 ```text
-File → Open Workspace from File… → ~/Cursor Projects/SysTrayWeather.code-workspace
+/home/jcain/Cursor Projects/SysTrayWeather.code-workspace
 ```
 
-Do not mix SysTrayWeather changes into LM9LLM or other project PRs.
-
-## License
-
-MIT (or your choice — add a LICENSE file if needed)
+See [Cursor Projects README](../README.md) for other workspaces.
