@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 import httpx
 
 from systrayweather.weather.base import GeocodingResult
 from systrayweather.weather.models import WeatherSnapshot
+
+log = logging.getLogger("systrayweather.open_meteo")
 
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
@@ -41,6 +44,7 @@ class OpenMeteoClient:
         if us_only or query.isdigit():
             params["countryCode"] = "US"
 
+        log.info("Open-Meteo geocode: GET %s params=%s", GEOCODING_URL, params)
         response = self._client.get(GEOCODING_URL, params=params)
         response.raise_for_status()
         payload = response.json()
@@ -72,16 +76,15 @@ class OpenMeteoClient:
         timezone: str,
         location_name: str,
     ) -> WeatherSnapshot:
-        response = self._client.get(
-            FORECAST_URL,
-            params={
-                "latitude": latitude,
-                "longitude": longitude,
-                "timezone": timezone or "auto",
-                "current": "temperature_2m",
-                "temperature_unit": "fahrenheit",
-            },
-        )
+        params = {
+            "latitude": latitude,
+            "longitude": longitude,
+            "timezone": timezone or "auto",
+            "current": "temperature_2m",
+            "temperature_unit": "fahrenheit",
+        }
+        log.info("Open-Meteo forecast: GET %s params=%s", FORECAST_URL, params)
+        response = self._client.get(FORECAST_URL, params=params)
         response.raise_for_status()
         payload = response.json()
         current = payload.get("current") or {}
@@ -89,6 +92,7 @@ class OpenMeteoClient:
         if temp is None:
             raise ValueError("No current temperature returned from API")
 
+        log.info("Open-Meteo: %s temp=%.1fF", location_name, float(temp))
         return WeatherSnapshot(
             location_name=location_name,
             current_temperature=float(temp),

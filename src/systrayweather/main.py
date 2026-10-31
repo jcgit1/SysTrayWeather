@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import signal
 import sys
 
@@ -9,9 +10,12 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from systrayweather.config import AppConfig
 from systrayweather.location_dialog import LocationDialog
+from systrayweather.logging_setup import setup_logging
 from systrayweather.tray import WeatherTrayIcon
 from systrayweather.weather.open_meteo import OpenMeteoClient
 from systrayweather.weather_service import WeatherService
+
+log = logging.getLogger("systrayweather.main")
 
 SERVER_NAME = "systrayweather_single_instance"
 
@@ -94,6 +98,7 @@ class SysTrayWeatherApp:
 
     def run(self) -> int:
         if not _ensure_single_instance(self.app):
+            log.info("Another instance is already running, exiting")
             QMessageBox.information(
                 None,
                 "SysTrayWeather",
@@ -101,13 +106,20 @@ class SysTrayWeatherApp:
             )
             return 0
 
+        log.info("Config: location=%s lat=%.4f lon=%.4f tz=%s poll=%dm",
+                 self.config.location_name, self.config.latitude,
+                 self.config.longitude, self.config.timezone,
+                 self.config.poll_interval_minutes)
+
         if not self.config.is_configured:
             if not _prompt_location(self.config, required=True):
+                log.info("Location setup cancelled, exiting")
                 return 0
             self.service._config = self.config
 
         self.service.start()
         self.tray.show()
+        log.info("SysTrayWeather ready, entering event loop")
         return self.app.exec()
 
     def _change_location(self) -> None:
@@ -116,12 +128,17 @@ class SysTrayWeatherApp:
             self.service.refresh()
 
     def _on_weather_updated(self, snapshot, error) -> None:
+        if snapshot:
+            log.info("Tray updated: %s = %.0fF", snapshot.location_name, snapshot.current_temperature)
+        if error:
+            log.warning("Weather update error: %s", error)
         self.tray.update_weather(snapshot, error)
 
     def _quit(self) -> None:
         if self._quitting:
             return
         self._quitting = True
+        log.info("Quit requested, shutting down")
         self._signal_timer.stop()
         self.tray.shutdown()
         self.service.close()
@@ -129,6 +146,8 @@ class SysTrayWeatherApp:
 
 
 def main() -> None:
+    setup_logging()
+    log.info("SysTrayWeather starting")
     sys.exit(SysTrayWeatherApp().run())
 
 
