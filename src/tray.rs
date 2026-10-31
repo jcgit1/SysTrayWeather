@@ -40,6 +40,7 @@ pub fn install() -> Result<(), String> {
 pub fn drain() -> Vec<TrayAction> {
     let mut actions = Vec::new();
     while let Ok(event) = TrayIconEvent::receiver().try_recv() {
+        crate::log::info(&format!("tray event: {event:?}"));
         match event {
             TrayIconEvent::Click {
                 button: MouseButton::Left,
@@ -59,6 +60,7 @@ pub fn drain() -> Vec<TrayAction> {
         }
     }
     while let Ok(event) = MenuEvent::receiver().try_recv() {
+        crate::log::info(&format!("tray menu: {}", event.id.0));
         match event.id.0.as_str() {
             "refresh" => actions.push(TrayAction::Refresh),
             "location" => actions.push(TrayAction::Location),
