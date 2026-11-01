@@ -1,0 +1,20 @@
+---
+description: After a feature or bugfix build, install systrayweather and refresh Plasma autostart
+alwaysApply: true
+---
+
+# Install the latest build
+
+After a feature or bugfix is built, install that binary and point Plasma login autostart at it. Do this before treating the change as done. Skip it for questions, reviews, and edits that were not built.
+
+1. Build the release binary: `cargo build --release`
+2. Install it, replacing the existing file: `install -m 755 target/release/systrayweather /home/jcain/.local/bin/systrayweather`
+3. Keep the login entry at `~/.config/autostart/com.systrayweather.app.desktop` with this `Exec` line:
+
+```
+Exec=/home/jcain/.local/bin/systrayweather
+```
+
+Leave `X-KDE-autostart-after=panel` and `OnlyShowIn=KDE;` in place. If the entry is missing, recreate it with those fields.
+
+4. Restart the running copy so this session uses the new binary. Stop any current `systrayweather` process, then start `/home/jcain/.local/bin/systrayweather` under the user systemd manager (`systemd-run --user --collect --unit=systrayweather`). Do not leave it parented to the agent shell.
