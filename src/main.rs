@@ -1,5 +1,6 @@
 mod config;
 mod icon;
+mod instance;
 mod log;
 mod sky;
 mod tray;
@@ -19,6 +20,13 @@ const FORECAST_H: f32 = 330.0;
 
 fn main() -> iced::Result {
     log::init();
+    let _instance = match instance::acquire() {
+        Ok(lock) => lock,
+        Err(instance::AlreadyRunning) => {
+            log::warn("SysTrayWeather is already running; refusing a second instance");
+            return already_running();
+        }
+    };
     if let Err(err) = tray::install() {
         log::warn(&format!("tray icon failed: {err}"));
     }
@@ -359,6 +367,40 @@ fn muted() -> Color {
 
 fn dim() -> Color {
     Color::from_rgb(0.42, 0.45, 0.50)
+}
+
+#[derive(Debug, Clone)]
+enum Notice {
+    Ok,
+}
+
+fn already_running() -> iced::Result {
+    iced::application(|| (), on_notice, notice_view)
+        .title("SysTrayWeather")
+        .theme(Theme::Dark)
+        .window(window::Settings {
+            size: Size::new(480.0, 190.0),
+            position: Position::Centered,
+            resizable: false,
+            level: Level::AlwaysOnTop,
+            ..window::Settings::default()
+        })
+        .run()
+}
+
+fn on_notice(_state: &mut (), _message: Notice) -> Task<Notice> {
+    iced::exit()
+}
+
+fn notice_view(_state: &()) -> Element<'_, Notice> {
+    let body = column![
+        text("SysTrayWeather is already running.").size(18),
+        text("It will only run one instance of the application at the same time.").size(14),
+        button("OK").on_press(Notice::Ok),
+    ]
+    .spacing(16)
+    .padding(24);
+    container(body).width(Fill).height(Fill).into()
 }
 
 fn popup_origin(x: f64, y: f64) -> (f32, f32) {
