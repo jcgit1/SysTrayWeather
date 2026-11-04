@@ -1,12 +1,30 @@
 # SysTrayWeather
 
+## "ship it!" — the standing release ritual (user-defined 2026-11-04)
+When the user says "ship it!" for SysTrayWeather, run the full cycle without
+being asked per-step:
+1. Commit anything uncommitted on the working branch.
+2. Create a GitHub PR for the new commit(s) on `jcgit1/SysTrayWeather`
+   (`gh pr create` as jcgit1).
+3. Merge the PR (squash, delete branch).
+4. Sync: local `main` = GitHub `main` = Forgejo `jcain/SysTrayWeather` main
+   (`git push forgejo main` after the squash). Remotes: `origin` = GitHub,
+   `forgejo` = https://www.lm9llm.com/github/jcain/SysTrayWeather.git
+   (auth: basic auth `jcain` + token from `~/forgejo_token--again`).
+5. `cargo build --release` — must finish clean (no warnings). No test suite;
+   the build is the check.
+6. `install -m 755 target/release/systrayweather /home/jcain/.local/bin/systrayweather`,
+   then `systemctl --user stop systrayweather` and
+   `systemd-run --user --collect --unit=systrayweather /home/jcain/.local/bin/systrayweather`.
+   Confirm the log shows a fresh `Tray updated:` line before declaring done.
+
 KDE Plasma (and Windows) system tray weather indicator. The tray icon shows the current temperature. A left click opens a 5-day forecast popup. The menu can refresh, change location, open Options (units, refresh interval, unit on icon, popup theme, start-with-login), show About, or quit.
 
 This is a standalone app. It is not part of LM9LLM, TradeRadar, or any customer site.
 
 ## Root
 
-`/home/jcain/Cursor Projects/jcgit1/SysTrayWeather`
+`/home/jcain/Projects/SystrayWeather`
 
 The running copy on this machine is the installed binary, not `cargo run`:
 
