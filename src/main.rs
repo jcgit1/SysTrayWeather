@@ -22,8 +22,32 @@ const FORECAST_W: f32 = 700.0;
 const FORECAST_H: f32 = 330.0;
 const POLL_CHOICES: [u32; 4] = [10, 20, 30, 60];
 
+/// Per-build identifier: Cargo version + short commit hash + UTC build time.
+/// Uniquely names every binary so a running copy can be compared to source.
+fn build_id() -> String {
+    format!(
+        "{} ({}, built {})",
+        env!("CARGO_PKG_VERSION"),
+        env!("STW_GIT_HASH"),
+        build_time()
+    )
+}
+
+/// UTC compile time, stamped by build.rs into OUT_DIR/compiled-at.rs — fixed
+/// per binary, so every run of a given build reports the same id.
+fn build_time() -> &'static str {
+    include!(concat!(env!("OUT_DIR"), "/compiled-at.rs"))
+}
+
 fn main() -> iced::Result {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        println!("systrayweather {}", build_id());
+        return Ok(());
+    }
     log::init();
+    let build = build_id();
+    log::info(&format!("SysTrayWeather build {build}"));
     let _instance = match instance::acquire() {
         Ok(lock) => lock,
         Err(instance::AlreadyRunning) => {
@@ -51,7 +75,7 @@ struct App {
     location: Option<window::Id>,
     options: Option<window::Id>,
     about: Option<window::Id>,
-    about_text: Option<(String, String, String)>,
+    about_text: Option<(String, String, String, String)>,
     autostart: bool,
 }
 
@@ -344,7 +368,7 @@ impl App {
                     ..window::Settings::default()
                 });
                 self.about = Some(id);
-                self.about_text = Some((version.into(), config_path, log_path));
+                self.about_text = Some((version.into(), build_id(), config_path, log_path));
                 return task.map(|_| Message::WindowOpened);
             }
             Message::OptionsClose => {
@@ -421,14 +445,15 @@ impl App {
 }
 
 fn about_view(app: &App) -> Element<'_, Message> {
-    let (version, config_path, log_path) = app
+    let (version, build, config_path, log_path) = app
         .about_text
         .as_ref()
-        .map(|(v, c, l)| (v.as_str(), c.as_str(), l.as_str()))
-        .unwrap_or(("?", "", ""));
+        .map(|(v, b, c, l)| (v.as_str(), b.as_str(), c.as_str(), l.as_str()))
+        .unwrap_or(("?", "?", "", ""));
     let body = column![
         text("SysTrayWeather").size(20),
         text(format!("Version {version}")).size(14).color(muted()),
+        text(format!("Build {build}")).size(12).color(dim()),
         text("System tray weather indicator for KDE Plasma").size(13).color(muted()),
         text(format!("Config: {config_path}")).size(12).color(dim()),
         text(format!("Log: {log_path}")).size(12).color(dim()),

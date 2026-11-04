@@ -3,6 +3,11 @@
 ## "ship it!" — the standing release ritual (user-defined 2026-11-04)
 When the user says "ship it!" for SysTrayWeather, run the full cycle without
 being asked per-step:
+0. Bump the version: edit `Cargo.toml` `version` (patch bump by default;
+   minor for features, major for breaking), and note it in the commit.
+   Every binary also carries an auto-stamped build id — version + short commit
+   + UTC build time (`systrayweather --version`, logged at startup, shown in
+   the About window) — so binaries are distinguishable even without a bump.
 1. Commit anything uncommitted on the working branch.
 2. Create a GitHub PR for the new commit(s) on `jcgit1/SysTrayWeather`
    (`gh pr create` as jcgit1).
@@ -12,7 +17,7 @@ being asked per-step:
    `forgejo` = https://www.lm9llm.com/github/jcain/SysTrayWeather.git
    (auth: basic auth `jcain` + token from `~/forgejo_token--again`).
 5. `cargo build --release` — must finish clean (no warnings). No test suite;
-   the build is the check.
+   the build is the check. Verify `--version` prints the new version.
 6. `install -m 755 target/release/systrayweather /home/jcain/.local/bin/systrayweather`,
    then `systemctl --user stop systrayweather` and
    `systemd-run --user --collect --unit=systrayweather /home/jcain/.local/bin/systrayweather`.
