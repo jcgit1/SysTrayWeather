@@ -1,12 +1,14 @@
 use std::cell::RefCell;
 
-use tray_icon::menu::{Menu, MenuEvent, MenuItem};
+use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 pub enum TrayAction {
     Activate { x: f64, y: f64 },
     Refresh,
     Location,
+    Options,
+    About,
     Quit,
 }
 
@@ -17,10 +19,15 @@ thread_local! {
 pub fn install() -> Result<(), String> {
     let refresh = MenuItem::with_id("refresh", "Refresh", true, None);
     let location = MenuItem::with_id("location", "Location…", true, None);
+    let options = MenuItem::with_id("options", "Options…", true, None);
+    let about = MenuItem::with_id("about", "About SysTrayWeather", true, None);
     let quit = MenuItem::with_id("quit", "Quit", true, None);
     let menu = Menu::new();
     menu.append(&refresh).map_err(|err| err.to_string())?;
     menu.append(&location).map_err(|err| err.to_string())?;
+    menu.append(&options).map_err(|err| err.to_string())?;
+    menu.append(&separator()).map_err(|err| err.to_string())?;
+    menu.append(&about).map_err(|err| err.to_string())?;
     menu.append(&quit).map_err(|err| err.to_string())?;
 
     let (rgba, width, height) = crate::icon::temperature_icon("--")?;
@@ -64,11 +71,17 @@ pub fn drain() -> Vec<TrayAction> {
         match event.id.0.as_str() {
             "refresh" => actions.push(TrayAction::Refresh),
             "location" => actions.push(TrayAction::Location),
+            "options" => actions.push(TrayAction::Options),
+            "about" => actions.push(TrayAction::About),
             "quit" => actions.push(TrayAction::Quit),
             _ => {}
         }
     }
     actions
+}
+
+fn separator() -> PredefinedMenuItem {
+    PredefinedMenuItem::separator()
 }
 
 pub fn set_temperature(label: &str, tooltip: &str) {

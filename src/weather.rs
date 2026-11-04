@@ -6,7 +6,9 @@ use crate::config::Config;
 #[derive(Debug, Clone)]
 pub struct Snapshot {
     pub location_name: String,
-    pub current_f: f64,
+    /// Current temperature in the unit the fetch asked for (`metric` says which).
+    pub current: f64,
+    pub metric: bool,
     pub days: Vec<Day>,
 }
 
@@ -15,12 +17,13 @@ pub struct Day {
     pub date: NaiveDate,
     pub is_today: bool,
     pub weather_code: i32,
-    pub temp_max_f: f64,
-    pub temp_min_f: f64,
-    pub precip_inches: f64,
+    pub temp_max: f64,
+    pub temp_min: f64,
+    pub precip: f64,
     pub precip_probability: Option<i32>,
-    pub snowfall_inches: f64,
+    pub snowfall: f64,
     pub cloud_cover: Option<i32>,
+    pub metric: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,9 +69,9 @@ pub fn sky_kind(day: &Day) -> Sky {
     if STORM.contains(&code) {
         return Sky::Storm;
     }
-    let snowing = SNOW.contains(&code) || day.snowfall_inches >= 0.05;
+    let snowing = SNOW.contains(&code) || day.snowfall >= precip_trace(day.metric);
     let raining = RAIN.contains(&code) || DRIZZLE.contains(&code) || FREEZING.contains(&code);
-    if snowing && (raining || (day.precip_inches >= 0.05 && !SNOW.contains(&code))) {
+    if snowing && (raining || (day.precip >= precip_trace(day.metric) && !SNOW.contains(&code))) {
         return Sky::Sleet;
     }
     if snowing {
@@ -80,10 +83,10 @@ pub fn sky_kind(day: &Day) -> Sky {
     if DRIZZLE.contains(&code) {
         return Sky::Drizzle;
     }
-    if RAIN.contains(&code) || day.precip_inches >= 0.1 {
+    if RAIN.contains(&code) || day.precip >= precip_rain(day.metric) {
         return Sky::Rain;
     }
-    if day.precip_inches >= 0.01 {
+    if day.precip >= precip_trace(day.metric) {
         return Sky::Drizzle;
     }
     if FOG.contains(&code) {
@@ -113,18 +116,35 @@ pub fn sky_kind(day: &Day) -> Sky {
     Sky::Partly
 }
 
+/// Precip amounts scale with the unit system: 0.01 in is a trace, ~2 mm in metric.
+fn precip_trace(metric: bool) -> f64 {
+    if metric {
+        0.25
+    } else {
+        0.01
+    }
+}
+
+fn precip_rain(metric: bool) -> f64 {
+    if metric {
+        2.5
+    } else {
+        0.1
+    }
+}
+
 pub fn precip_lines(day: &Day) -> Vec<String> {
     let mut lines = Vec::new();
     let kind = sky_kind(day);
-    if day.snowfall_inches >= 0.05 {
-        lines.push(format!("{} snow", inches(day.snowfall_inches)));
+    if day.snowfall >= precip_trace(day.metric) {
+        lines.push(format!("{} snow", amount(day.snowfall, day.metric)));
     }
-    if day.precip_inches >= 0.01 && kind != Sky::Snow {
-        let mut amount = inches(day.precip_inches);
-        if day.snowfall_inches >= 0.05 {
-            amount = format!("{amount} rain");
+    if day.precip >= precip_trace(day.metric) && kind != Sky::Snow {
+        let mut text = amount(day.precip, day.metric);
+        if day.snowfall >= precip_trace(day.metric) {
+            text = format!("{text} rain");
         }
-        lines.push(amount);
+        lines.push(text);
     }
     if lines.is_empty() {
         lines.push("No precip".into());
@@ -132,8 +152,14 @@ pub fn precip_lines(day: &Day) -> Vec<String> {
     lines
 }
 
-fn inches(value: f64) -> String {
-    if value >= 1.0 {
+pub fn amount(value: f64, metric: bool) -> String {
+    if metric {
+        if value >= 10.0 {
+            format!("{value:.0} mm")
+        } else {
+            format!("{value:.1} mm")
+        }
+    } else if value >= 1.0 {
         format!("{value:.1} in")
     } else {
         format!("{value:.2} in")
@@ -141,6 +167,7 @@ fn inches(value: f64) -> String {
 }
 
 pub fn fetch(config: &Config) -> Result<Snapshot, String> {
+    let metric = crate::config::is_metric(&config.units);
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
         .build()
@@ -157,8 +184,14 @@ pub fn fetch(config: &Config) -> Result<Snapshot, String> {
                 "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,snowfall_sum,cloud_cover_mean".into(),
             ),
             ("forecast_days", "5".into()),
-            ("temperature_unit", "fahrenheit".into()),
-            ("precipitation_unit", "inch".into()),
+            (
+                "temperature_unit",
+                if metric { "celsius" } else { "fahrenheit" }.into(),
+            ),
+            (
+                "precipitation_unit",
+                if metric { "millimeter" } else { "inch" }.into(),
+            ),
         ])
         .send()
         .map_err(|err| err.to_string())?
@@ -172,13 +205,15 @@ pub fn fetch(config: &Config) -> Result<Snapshot, String> {
         .ok_or_else(|| "No current temperature returned".to_string())?;
     let days = parse_days(&payload);
     crate::log::info(&format!(
-        "Open-Meteo: {} temp={temp:.1}F days={}",
+        "Open-Meteo: {} temp={temp:.1}{} days={}",
         config.location_name,
+        if metric { "C" } else { "F" },
         days.len()
     ));
     Ok(Snapshot {
         location_name: config.location_name.clone(),
-        current_f: temp,
+        current: temp,
+        metric,
         days,
     })
 }
@@ -222,22 +257,27 @@ pub fn geocode(query: &str) -> Result<Config, String> {
         (_, Some(country)) if !country.is_empty() => format!("{}, {country}", place.name),
         _ => place.name.clone(),
     };
-    Ok(Config {
-        location_query: cleaned.to_string(),
-        location_name,
-        latitude: place.latitude,
-        longitude: place.longitude,
-        timezone: place.timezone.unwrap_or_else(|| "auto".into()),
-        units: "imperial".into(),
-        poll_interval_minutes: crate::config::DEFAULT_POLL_MINUTES,
-        location_setup_complete: true,
-    })
+    // Keep the user's existing settings; a location change replaces only
+    // the location fields.
+    let mut config = Config::load();
+    config.location_query = cleaned.to_string();
+    config.location_name = location_name;
+    config.latitude = place.latitude;
+    config.longitude = place.longitude;
+    config.timezone = place.timezone.unwrap_or_else(|| "auto".into());
+    config.location_setup_complete = true;
+    Ok(config)
 }
 
 fn parse_days(payload: &ForecastPayload) -> Vec<Day> {
     let Some(daily) = payload.daily.as_ref() else {
         return Vec::new();
     };
+    let metric = payload
+        .current_units
+        .as_ref()
+        .and_then(|units| units.temperature_2m.as_deref())
+        .map_or(false, |unit| unit == "°C");
     let offset = payload.utc_offset_seconds.unwrap_or(0);
     let today = (Utc::now() + chrono::Duration::seconds(offset)).date_naive();
     let mut days = Vec::new();
@@ -256,12 +296,13 @@ fn parse_days(payload: &ForecastPayload) -> Vec<Day> {
             date,
             is_today: date == today,
             weather_code: code as i32,
-            temp_max_f: high,
-            temp_min_f: low,
-            precip_inches: at(&daily.precipitation_sum, index).unwrap_or(0.0),
+            temp_max: high,
+            temp_min: low,
+            precip: at(&daily.precipitation_sum, index).unwrap_or(0.0),
             precip_probability: at(&daily.precipitation_probability_max, index).map(|v| v as i32),
-            snowfall_inches: at(&daily.snowfall_sum, index).unwrap_or(0.0),
+            snowfall: at(&daily.snowfall_sum, index).unwrap_or(0.0),
             cloud_cover: at(&daily.cloud_cover_mean, index).map(|v| v.round() as i32),
+            metric,
         });
     }
     days
@@ -275,7 +316,14 @@ fn at(values: &Option<Vec<Option<f64>>>, index: usize) -> Option<f64> {
 struct ForecastPayload {
     utc_offset_seconds: Option<i64>,
     current: Option<Current>,
+    #[serde(rename = "current_units")]
+    current_units: Option<CurrentUnits>,
     daily: Option<Daily>,
+}
+
+#[derive(Deserialize)]
+struct CurrentUnits {
+    temperature_2m: Option<String>,
 }
 
 #[derive(Deserialize)]

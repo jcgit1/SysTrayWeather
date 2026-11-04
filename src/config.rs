@@ -5,6 +5,36 @@ use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_POLL_MINUTES: u32 = 20;
 
+/// Forecast popup theme: "light", "dark", or "system".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemeChoice {
+    Light,
+    Dark,
+    System,
+}
+
+impl Default for ThemeChoice {
+    fn default() -> Self {
+        Self::System
+    }
+}
+
+impl ThemeChoice {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Light => "light",
+            Self::Dark => "dark",
+            Self::System => "system",
+        }
+    }
+}
+
+/// True when the config asks for Celsius; anything else stays Fahrenheit.
+pub fn is_metric(units: &str) -> bool {
+    units.eq_ignore_ascii_case("metric")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
@@ -23,6 +53,10 @@ pub struct Config {
     pub poll_interval_minutes: u32,
     #[serde(default)]
     pub location_setup_complete: bool,
+    #[serde(default)]
+    pub show_unit_on_icon: bool,
+    #[serde(default)]
+    pub theme: ThemeChoice,
 }
 
 fn auto_tz() -> String {
@@ -46,6 +80,8 @@ impl Default for Config {
             units: imperial(),
             poll_interval_minutes: DEFAULT_POLL_MINUTES,
             location_setup_complete: false,
+            show_unit_on_icon: false,
+            theme: ThemeChoice::default(),
         }
     }
 }
