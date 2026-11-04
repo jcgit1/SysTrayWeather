@@ -1,6 +1,6 @@
 # SysTrayWeather
 
-KDE Plasma (and Windows) system tray weather indicator. The tray icon shows the current temperature. A left click opens a 5-day forecast popup. The menu can refresh, change location, or quit.
+KDE Plasma (and Windows) system tray weather indicator. The tray icon shows the current temperature. A left click opens a 5-day forecast popup. The menu can refresh, change location, open Options (units, refresh interval, unit on icon, popup theme, start-with-login), show About, or quit.
 
 This is a standalone app. It is not part of LM9LLM, TradeRadar, or any customer site.
 
@@ -18,12 +18,13 @@ The app is the Rust crate. `Cargo.toml` version is 0.2.0. Entry point is `src/ma
 
 | Path | Role |
 |---|---|
-| `src/main.rs` | iced daemon: forecast popup, location dialog, poll loop |
+| `src/main.rs` | iced daemon: forecast popup, location dialog, options window, About window, poll loop |
 | `src/tray.rs` | tray icon and menu (`tray-icon`, Linux feature `ksni`) |
 | `src/icon.rs` | 64×64 temperature icon, rasterized with `fontdue` |
 | `src/weather.rs` | Open-Meteo forecast and geocoding |
 | `src/sky.rs` | forecast sky glyphs drawn on an iced canvas |
 | `src/config.rs` | `config.json` load/save and log path |
+| `src/autostart.rs` | start-with-login toggle (XDG autostart file on Linux, HKCU Run key on Windows) |
 | `src/instance.rs` | one-instance file lock for this binary |
 | `src/log.rs` | append-only log, also printed to stderr |
 | `data/com.systrayweather.app.desktop` | desktop entry template in the repo |
@@ -34,7 +35,7 @@ Leave the Python tree alone. `src/systrayweather/`, `pyproject.toml`, `requireme
 
 Rust 2021 edition. Crates: `iced` 0.14 (canvas, tokio, advanced), `tray-icon` 0.26 (`ksni` on Linux), `reqwest` 0.12 (blocking, rustls), `serde` / `serde_json`, `fontdue`, `chrono`.
 
-No API key. Weather is `https://api.open-meteo.com/v1/forecast`. Location search is `https://geocoding-api.open-meteo.com/v1/search`. A city name or a 5-digit US zip is accepted. Fetch always asks for Fahrenheit and inches, even though `config.json` has a `units` field.
+No API key. Weather is `https://api.open-meteo.com/v1/forecast`. Location search is `https://geocoding-api.open-meteo.com/v1/search`. A city name or a 5-digit US zip is accepted. Fetch asks for Fahrenheit/inches or Celsius/mm based on `config.json` `units` (`"imperial"` / `"metric"`); the Options window sets it.
 
 Linux tray text needs a bold font. `src/icon.rs` uses `/usr/share/fonts/noto/NotoSans-Bold.ttf` when it exists, otherwise `/usr/share/fonts/TTF/DejaVuSans-Bold.ttf`. Windows uses `C:\Windows\Fonts\segoeuib.ttf`.
 
@@ -49,7 +50,7 @@ Linux tray text needs a bold font. `src/icon.rs` uses `/usr/share/fonts/noto/Not
 
 On Windows, config is `%APPDATA%\systrayweather\config.json` and the log is `%LOCALAPPDATA%\systrayweather\systrayweather.log`.
 
-Config fields: `location_query`, `location_name`, `latitude`, `longitude`, `timezone`, `units`, `poll_interval_minutes` (default 20), `location_setup_complete`. The location dialog opens on startup when setup is incomplete or lat/lon/name are missing.
+Config fields: `location_query`, `location_name`, `latitude`, `longitude`, `timezone`, `units`, `poll_interval_minutes` (default 20), `location_setup_complete`, `show_unit_on_icon` (default false), `theme` (`"light"`/`"dark"`/`"system"`, default `"system"`; iced 0.14 has no system-dark detection, so system maps to Dark). The location dialog opens on startup when setup is incomplete or lat/lon/name are missing. The Options window edits all of these except the location fields, and toggles autostart directly (not via config).
 
 The lock is per executable path. `cargo run` and `~/.local/bin/systrayweather` can both be running. A second start of the same binary logs "already running" and shows a short notice.
 

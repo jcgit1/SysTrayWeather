@@ -1,3 +1,4 @@
+mod autostart;
 mod config;
 mod icon;
 mod instance;
@@ -8,15 +9,18 @@ mod weather;
 
 use std::time::{Duration, Instant};
 
-use iced::widget::{button, column, container, row, text, text_input};
+use iced::widget::{
+    button, checkbox, column, container, radio, row, space, text, text_input,
+};
 use iced::window::{self, Level, Position};
 use iced::{Color, Element, Fill, Point, Size, Subscription, Task, Theme};
 
-use config::Config;
+use config::{Config, ThemeChoice};
 use weather::{Snapshot, Sky};
 
 const FORECAST_W: f32 = 700.0;
 const FORECAST_H: f32 = 330.0;
+const POLL_CHOICES: [u32; 4] = [10, 20, 30, 60];
 
 fn main() -> iced::Result {
     log::init();
@@ -33,7 +37,7 @@ fn main() -> iced::Result {
     iced::daemon(App::boot, App::update, App::view)
         .subscription(App::subscription)
         .title(App::title)
-        .theme(Theme::Dark)
+        .theme(App::theme)
         .run()
 }
 
@@ -45,6 +49,10 @@ struct App {
     forecast: Option<window::Id>,
     forecast_at: Option<Instant>,
     location: Option<window::Id>,
+    options: Option<window::Id>,
+    about: Option<window::Id>,
+    about_text: Option<(String, String, String)>,
+    autostart: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +65,14 @@ enum Message {
     QueryChanged(String),
     SaveLocation,
     LocationReady(Result<Config, String>),
+    ShowOptions,
+    ShowAbout,
+    OptionsClose,
+    UnitsChanged(bool),
+    PollChanged(u32),
+    ShowUnitToggled(bool),
+    ThemeChanged(ThemeChoice),
+    AutostartToggled(bool),
     WindowOpened,
     WindowClosed(window::Id),
     Quit,
@@ -74,6 +90,10 @@ impl App {
             forecast: None,
             forecast_at: None,
             location: None,
+            options: None,
+            about: None,
+            about_text: None,
+            autostart: autostart::is_enabled(),
         };
         let task = if app.config.is_configured() {
             fetch_task(app.config.clone())
@@ -86,8 +106,24 @@ impl App {
     fn title(&self, id: window::Id) -> String {
         if self.location == Some(id) {
             "SysTrayWeather — Location".into()
+        } else if self.options == Some(id) {
+            "SysTrayWeather — Options".into()
+        } else if self.about == Some(id) {
+            "SysTrayWeather — About".into()
         } else {
             "SysTrayWeather".into()
+        }
+    }
+
+    fn theme(&self, id: window::Id) -> Theme {
+        if self.options == Some(id) || self.about == Some(id) {
+            return Theme::Dark;
+        }
+        match self.config.theme {
+            ThemeChoice::Light => Theme::Light,
+            // iced 0.14 has no system-dark detection; "System" keeps the
+            // app's traditional Dark look.
+            ThemeChoice::Dark | ThemeChoice::System => Theme::Dark,
         }
     }
 
@@ -114,6 +150,12 @@ impl App {
                         tray::TrayAction::Location => {
                             task = task.chain(self.update(Message::ShowLocation));
                         }
+                        tray::TrayAction::Options => {
+                            task = task.chain(self.update(Message::ShowOptions));
+                        }
+                        tray::TrayAction::About => {
+                            task = task.chain(self.update(Message::ShowAbout));
+                        }
                         tray::TrayAction::Quit => {
                             task = task.chain(self.update(Message::Quit));
                         }
@@ -135,7 +177,11 @@ impl App {
             Message::Fetched(result) => {
                 match result {
                     Ok(snapshot) => {
-                        let label = format!("{}°", snapshot.current_f.round());
+                        let unit = if snapshot.metric { "°C" } else { "°F" };
+                        let mut label = format!("{}°", snapshot.current.round());
+                        if self.config.show_unit_on_icon {
+                            label.push_str(&unit[1..]);
+                        }
                         let tip = format!("{} — {label}", snapshot.location_name);
                         tray::set_temperature(&label, &tip);
                         log::info(&format!("Tray updated: {tip}"));
@@ -230,6 +276,84 @@ impl App {
                     Task::none()
                 }
             },
+            Message::ShowOptions => {
+                if self.options.is_some() {
+                    return Task::none();
+                }
+                self.autostart = autostart::is_enabled();
+                let (id, task) = window::open(window::Settings {
+                    size: Size::new(440.0, 400.0),
+                    position: Position::Centered,
+                    resizable: false,
+                    level: Level::AlwaysOnTop,
+                    exit_on_close_request: false,
+                    ..window::Settings::default()
+                });
+                self.options = Some(id);
+                task.map(|_| Message::WindowOpened)
+            }
+            Message::UnitsChanged(metric) => {
+                let units = if metric { "metric" } else { "imperial" };
+                if self.config.units != units {
+                    log::info(&format!("Units set to {units}"));
+                    self.config.units = units.into();
+                    return self.apply_config(true);
+                }
+                Task::none()
+            }
+            Message::PollChanged(minutes) => {
+                if self.config.poll_interval_minutes != minutes {
+                    log::info(&format!("Poll interval set to {minutes} minutes"));
+                    self.config.poll_interval_minutes = minutes;
+                    return self.apply_config(true);
+                }
+                Task::none()
+            }
+            Message::ShowUnitToggled(show) => {
+                self.config.show_unit_on_icon = show;
+                self.apply_config(true)
+            }
+            Message::ThemeChanged(theme) => {
+                if self.config.theme != theme {
+                    log::info(&format!("Theme set to {}", theme.as_str()));
+                    self.config.theme = theme;
+                    return self.apply_config(true);
+                }
+                Task::none()
+            }
+            Message::AutostartToggled(enable) => {
+                if let Err(err) = autostart::set_enabled(enable) {
+                    log::warn(&format!("Autostart change failed: {err}"));
+                    self.status = format!("Could not change autostart: {err}");
+                    return Task::none();
+                }
+                self.autostart = enable;
+                self.status.clear();
+                Task::none()
+            }
+            Message::ShowAbout => {
+                let version = env!("CARGO_PKG_VERSION");
+                let config_path = config::config_path().display().to_string();
+                let log_path = config::log_path().display().to_string();
+                let (id, task) = window::open(window::Settings {
+                    size: Size::new(460.0, 210.0),
+                    position: Position::Centered,
+                    resizable: false,
+                    level: Level::AlwaysOnTop,
+                    exit_on_close_request: false,
+                    ..window::Settings::default()
+                });
+                self.about = Some(id);
+                self.about_text = Some((version.into(), config_path, log_path));
+                return task.map(|_| Message::WindowOpened);
+            }
+            Message::OptionsClose => {
+                let Some(id) = self.about.take() else {
+                    return Task::none();
+                };
+                self.about_text = None;
+                window::close(id)
+            }
             Message::WindowOpened => Task::none(),
             Message::WindowClosed(id) => {
                 if self.forecast == Some(id) {
@@ -238,6 +362,13 @@ impl App {
                 }
                 if self.location == Some(id) {
                     self.location = None;
+                }
+                if self.options == Some(id) {
+                    self.options = None;
+                }
+                if self.about == Some(id) {
+                    self.about = None;
+                    self.about_text = None;
                 }
                 Task::none()
             }
@@ -248,12 +379,149 @@ impl App {
         }
     }
 
+    /// Persist the config; optionally re-fetch (unit changes make the cached
+    /// snapshot wrong) and re-render the tray label.
+    fn apply_config(&mut self, refetch: bool) -> Task<Message> {
+        if let Err(err) = self.config.save() {
+            log::warn(&format!("Config save failed: {err}"));
+            self.status = err;
+            return Task::none();
+        }
+        self.status.clear();
+        if let Some(snapshot) = self.snapshot.clone() {
+            let stale_unit = snapshot.metric != config::is_metric(&self.config.units);
+            if !stale_unit {
+                let unit = if snapshot.metric { "°C" } else { "°F" };
+                let mut label = format!("{}°", snapshot.current.round());
+                if self.config.show_unit_on_icon {
+                    label.push_str(&unit[1..]);
+                }
+                let tip = format!("{} — {label}", snapshot.location_name);
+                tray::set_temperature(&label, &tip);
+            }
+        }
+        if refetch && self.config.is_configured() {
+            return fetch_task(self.config.clone());
+        }
+        Task::none()
+    }
+
     fn view(&self, id: window::Id) -> Element<'_, Message> {
         if self.location == Some(id) {
             return location_view(self);
         }
+        if self.options == Some(id) {
+            return options_view(self);
+        }
+        if self.about == Some(id) {
+            return about_view(self);
+        }
         forecast_view(self)
     }
+}
+
+fn about_view(app: &App) -> Element<'_, Message> {
+    let (version, config_path, log_path) = app
+        .about_text
+        .as_ref()
+        .map(|(v, c, l)| (v.as_str(), c.as_str(), l.as_str()))
+        .unwrap_or(("?", "", ""));
+    let body = column![
+        text("SysTrayWeather").size(20),
+        text(format!("Version {version}")).size(14).color(muted()),
+        text("System tray weather indicator for KDE Plasma").size(13).color(muted()),
+        text(format!("Config: {config_path}")).size(12).color(dim()),
+        text(format!("Log: {log_path}")).size(12).color(dim()),
+        button("Close").on_press(Message::OptionsClose),
+    ]
+    .spacing(10)
+    .padding(22);
+    container(body).width(Fill).height(Fill).into()
+}
+
+fn options_view(app: &App) -> Element<'_, Message> {
+    let metric = config::is_metric(&app.config.units);
+    let location_row = row![
+        column![
+            text("Location").size(15),
+            text(if app.config.location_name.is_empty() {
+                "Not set".to_string()
+            } else {
+                app.config.location_name.clone()
+            })
+            .size(13)
+            .color(muted()),
+        ]
+        .spacing(2),
+        space(),
+        button("Change…").on_press(Message::ShowLocation),
+    ]
+    .align_y(iced::Alignment::Center);
+
+    let units_row = row![
+        text("Units").size(15).width(110.0),
+        radio("°F", false, (!metric).then_some(false), Message::UnitsChanged),
+        radio("°C", true, metric.then_some(true), Message::UnitsChanged),
+    ]
+    .spacing(14)
+    .align_y(iced::Alignment::Center);
+
+    let poll_row = row![text("Refresh every").size(15).width(110.0)].spacing(14);
+    let current = (POLL_CHOICES.contains(&app.config.poll_interval_minutes)
+        .then_some(app.config.poll_interval_minutes))
+        .or(Some(20));
+    let poll_row = POLL_CHOICES.into_iter().fold(poll_row, |row, minutes| {
+        row.push(radio(
+            format!("{minutes} min"),
+            minutes,
+            current.filter(|c| *c == minutes),
+            Message::PollChanged,
+        ))
+    });
+
+    let icon_row = row![
+        text("Icon").size(15).width(110.0),
+        checkbox(app.config.show_unit_on_icon)
+            .label("show unit (74°)")
+            .on_toggle(Message::ShowUnitToggled),
+    ]
+    .spacing(14)
+    .align_y(iced::Alignment::Center);
+
+    let theme = app.config.theme;
+    let theme_row = row![
+        text("Theme").size(15).width(110.0),
+        radio("Light", ThemeChoice::Light, (theme == ThemeChoice::Light).then_some(ThemeChoice::Light), Message::ThemeChanged),
+        radio("Dark", ThemeChoice::Dark, (theme == ThemeChoice::Dark).then_some(ThemeChoice::Dark), Message::ThemeChanged),
+        radio("System", ThemeChoice::System, (theme == ThemeChoice::System).then_some(ThemeChoice::System), Message::ThemeChanged),
+    ]
+    .spacing(14)
+    .align_y(iced::Alignment::Center);
+
+    let login_row = row![
+        text("Login").size(15).width(110.0),
+        checkbox(app.autostart)
+            .label("start with login")
+            .on_toggle(Message::AutostartToggled),
+    ]
+    .spacing(14)
+    .align_y(iced::Alignment::Center);
+
+    let mut col = column![
+        text("Options").size(20),
+        location_row,
+        units_row,
+        poll_row,
+        icon_row,
+        theme_row,
+        login_row,
+    ]
+    .spacing(16)
+    .padding(22);
+    if !app.status.is_empty() {
+        col = col.push(text(&app.status).size(13).color(Color::from_rgb(0.9, 0.45, 0.4)));
+    }
+    container(col).width(Fill).height(Fill).into()
 }
 
 fn location_view(app: &App) -> Element<'_, Message> {
@@ -324,8 +592,8 @@ fn day_column(day: &weather::Day) -> Element<'_, Message> {
         sky::glyph(kind),
         text(kind.label()).size(12).color(muted()),
         row![
-            text(format!("{}°", day.temp_max_f.round())).size(14),
-            text(format!("{}°", day.temp_min_f.round()))
+            text(format!("{}°", day.temp_max.round())).size(14),
+            text(format!("{}°", day.temp_min.round()))
                 .size(14)
                 .color(dim()),
         ]
