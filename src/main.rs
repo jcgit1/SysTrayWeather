@@ -91,6 +91,7 @@ enum Message {
     LocationReady(Result<Config, String>),
     ShowOptions,
     ShowAbout,
+    AboutClose,
     OptionsClose,
     UnitsChanged(bool),
     PollChanged(u32),
@@ -99,6 +100,7 @@ enum Message {
     AutostartToggled(bool),
     WindowOpened,
     WindowClosed(window::Id),
+    WindowCloseRequest(window::Id),
     Quit,
 }
 
@@ -157,6 +159,7 @@ impl App {
             iced::time::every(Duration::from_millis(80)).map(|_| Message::Poll),
             iced::time::every(Duration::from_secs(minutes * 60)).map(|_| Message::Refresh),
             window::close_events().map(Message::WindowClosed),
+            window::close_requests().map(Message::WindowCloseRequest),
         ])
     }
 
@@ -356,6 +359,9 @@ impl App {
                 Task::none()
             }
             Message::ShowAbout => {
+                if self.about.is_some() {
+                    return Task::none();
+                }
                 let version = env!("CARGO_PKG_VERSION");
                 let config_path = config::config_path().display().to_string();
                 let log_path = config::log_path().display().to_string();
@@ -371,11 +377,37 @@ impl App {
                 self.about_text = Some((version.into(), build_id(), config_path, log_path));
                 return task.map(|_| Message::WindowOpened);
             }
-            Message::OptionsClose => {
+            Message::AboutClose => {
                 let Some(id) = self.about.take() else {
                     return Task::none();
                 };
                 self.about_text = None;
+                window::close(id)
+            }
+            Message::OptionsClose => {
+                let Some(id) = self.options.take() else {
+                    return Task::none();
+                };
+                window::close(id)
+            }
+            Message::WindowCloseRequest(id) => {
+                // The WM close button posts a request; nothing else handles
+                // it, so windows with decorations would never close. Route
+                // each window through its own close path so app state
+                // clears and the window actually goes away.
+                if self.forecast == Some(id) {
+                    return self.update(Message::ShowForecast { x: 0.0, y: 0.0 });
+                }
+                if self.location == Some(id) {
+                    self.location = None;
+                    return window::close(id);
+                }
+                if self.options == Some(id) {
+                    return self.update(Message::OptionsClose);
+                }
+                if self.about == Some(id) {
+                    return self.update(Message::AboutClose);
+                }
                 window::close(id)
             }
             Message::WindowOpened => Task::none(),
@@ -457,7 +489,7 @@ fn about_view(app: &App) -> Element<'_, Message> {
         text("System tray weather indicator for KDE Plasma").size(13).color(muted()),
         text(format!("Config: {config_path}")).size(12).color(dim()),
         text(format!("Log: {log_path}")).size(12).color(dim()),
-        button("Close").on_press(Message::OptionsClose),
+        button("Close").on_press(Message::AboutClose),
     ]
     .spacing(10)
     .padding(22);
